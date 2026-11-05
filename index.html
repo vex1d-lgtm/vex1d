@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sizga</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05070f; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .pill {
+    position: fixed; top: 12px; border: 1px solid rgba(255,255,255,.25);
+    background: rgba(255,255,255,.06); color: rgba(255,255,255,.7);
+    font: 13px system-ui, sans-serif; padding: 8px 14px; border-radius: 20px; cursor: pointer;
+  }
+  #replay { right: 12px; }
+  #music { left: 12px; }
+  .pill:focus-visible { outline: 2px solid #ffb000; outline-offset: 2px; }
+  #gate {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 18px; background: #05070f; cursor: pointer; z-index: 10;
+    color: #ffe2a8; font: 20px Georgia, serif; transition: opacity .8s;
+  }
+  #gate.hide { opacity: 0; pointer-events: none; }
+  #gate .btn { border: 1px solid #ffb000; padding: 12px 30px; border-radius: 30px; background: rgba(255,176,0,.12); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="replay" class="pill" type="button">Qayta boshlash</button>
+<button id="music" class="pill" type="button">Musiqa: yoqilgan</button>
+<audio id="song" src="song.mp3" loop preload="auto"></audio>
+<div id="gate"><div>Sizga sovg‘a bor</div><div class="btn">Boshlash</div></div>
+
+<script>
+/* ====== SOZLAMALAR: shu yerdan o'zgartiring ====== */
+const NAME   = '';        // pastdagi ism (katta harflarda yozing)
+const CENTER = 'LOVE ME';         // yurak o'rtasidagi qizil yozuv
+const WORDS  = [                  // yurakni tashkil qiladigan so'zlar
+  'Love me', 'Meni sev', 'Seni sevaman', 'Sevaman', 'Ashkim', 'Yagonam',
+  'Borligim', 'I love you', 'Jonginam', 'Sevgilim', 'Gulim', 'Люби меня', '愛してる', '爱你', 'Sev'
+];
+const COUNT = 110;                // so'zlar soni
+/* ================================================= */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+}
+addEventListener('resize', resize);
+resize();
+
+/* ---------- Yurak shaklidagi so'zlar bulutini yaratish ---------- */
+const items = Array.from({ length: COUNT }, () => {
+  const t = Math.random() * Math.PI * 2;
+  const s = Math.sqrt(Math.random());                 // yurak ichini to'ldirish
+  const hx = 16 * Math.pow(Math.sin(t), 3);
+  const hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+  return {
+    x: hx * s, y: hy * s + 2.5, z: (Math.random() - 0.5) * 16 * (1 - 0.4 * s),
+    word: WORDS[(Math.random() * WORDS.length) | 0],
+    delay: Math.random() * 3, ph: Math.random() * 6.28,
+    sx: (Math.random() - 0.5) * 2, sy: (Math.random() - 0.5) * 2   // boshlang'ich tarqalish
+  };
+});
+
+const dust = Array.from({ length: 120 }, () => ({
+  x: Math.random(), y: Math.random(), r: Math.random() * 1.1 + 0.3, ph: Math.random() * 6.28, v: 0.3 + Math.random()
+}));
+
+/* ---------- Boshqaruv ---------- */
+const song = document.getElementById('song');
+const gate = document.getElementById('gate');
+const musicBtn = document.getElementById('music');
+let t0 = 0, started = false;
+
+function updateMusicBtn() { musicBtn.textContent = song.paused ? 'Musiqa: o‘chiq' : 'Musiqa: yoqilgan'; }
+musicBtn.addEventListener('click', () => { if (song.paused) song.play().catch(() => {}); else song.pause(); });
+song.addEventListener('play', updateMusicBtn);
+song.addEventListener('pause', updateMusicBtn);
+gate.addEventListener('click', () => {
+  gate.classList.add('hide');
+  song.volume = 0.8;
+  song.play().catch(() => {});       // song.mp3 bo'lmasa ham animatsiya ishlayveradi
+  t0 = performance.now() / 1000; started = true;
+});
+document.getElementById('replay').addEventListener('click', () => { t0 = performance.now() / 1000; started = true; });
+
+/* ---------- Chizish ---------- */
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const ease = p => 1 - Math.pow(1 - p, 3);
+
+function frame(now) {
+  const time = now / 1000;
+  const T = started ? time - t0 : 0;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // fon
+  const bg = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, Math.max(W, H) * 0.75);
+  bg.addColorStop(0, '#0d1428'); bg.addColorStop(1, '#04060c');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  for (const d of dust) {
+    ctx.fillStyle = `rgba(255,235,200,${0.15 + 0.35 * Math.abs(Math.sin(time * d.v + d.ph))})`;
+    ctx.beginPath(); ctx.arc(d.x * W, d.y * H, d.r, 0, 6.283); ctx.fill();
+  }
+
+  const S = Math.min(W, H);
+  const cx = W / 2, cy = H * 0.46;
+  const beat = started ? Math.pow(Math.max(0, Math.sin(T * 2.6)), 10) : 0;
+  const k = (S / 44) * (1 + beat * 0.05);
+  const ang = Math.sin(T * 0.55) * 0.8;
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const base = S * 0.03;
+
+  // so'zlarni hisoblash
+  const list = [];
+  for (const it of items) {
+    const p = ease(clamp((T - it.delay) / 2.4, 0, 1));
+    if (p <= 0) continue;
+    const xr = it.x * ca + it.z * sa;
+    const zr = -it.x * sa + it.z * ca;
+    const depth = clamp(0.5 + zr / 36, 0, 1);
+    const tx = cx + xr * k;
+    const ty = cy - it.y * k + Math.sin(time * 1.2 + it.ph) * 2;
+    const px = cx + (it.sx * W * 0.5) * (1 - p) + (tx - cx) * p;
+    const py = cy + (it.sy * H * 0.5) * (1 - p) + (ty - cy) * p;
+    list.push({ px, py, depth, p, word: it.word });
+  }
+  list.sort((a, b) => a.depth - b.depth);
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const o of list) {
+    const d = o.depth;
+    const size = base * (0.72 + 0.6 * d);
+    ctx.font = `bold ${size.toFixed(1)}px "Trebuchet MS", system-ui, sans-serif`;
+    const g = Math.round(235 - 59 * d), b = Math.round(240 - 240 * d);
+    ctx.fillStyle = `rgba(255,${g},${b},${(0.5 + 0.5 * d) * o.p})`;
+    ctx.shadowColor = d > 0.5 ? 'rgba(255,150,0,.55)' : 'transparent';
+    ctx.shadowBlur = d > 0.5 ? 8 : 0;
+    ctx.fillText(o.word, o.px, o.py);
+  }
+  ctx.shadowBlur = 0;
+
+  // o'rtadagi qizil yozuv (yengil "glitch" bilan)
+  const cp = ease(clamp((T - 3.2) / 1.2, 0, 1));
+  if (cp > 0) {
+    const fs = S * 0.075 * (1 + beat * 0.06);
+    ctx.font = `800 ${fs.toFixed(1)}px "Arial Black", Impact, system-ui, sans-serif`;
+    ctx.globalAlpha = cp;
+    if (Math.random() < 0.18) {
+      ctx.fillStyle = 'rgba(255,40,70,.55)';
+      ctx.fillText(CENTER, cx + (Math.random() - 0.5) * 12, cy + (Math.random() - 0.5) * 6);
+      ctx.fillStyle = 'rgba(255,120,120,.35)';
+      ctx.fillText(CENTER, cx + (Math.random() - 0.5) * 12, cy + (Math.random() - 0.5) * 6);
+    }
+    ctx.shadowColor = 'rgba(255,30,60,.8)'; ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ff2a3d';
+    ctx.fillText(CENTER, cx, cy);
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+
+  // pastdagi ism
+  const np = ease(clamp((T - 4.5) / 1.5, 0, 1));
+  if (np > 0) {
+    const fs = clamp(S * 0.05, 18, 40);
+    const ny = Math.min(H - 56, cy + k * 22 + 10);
+    ctx.font = `600 ${fs.toFixed(1)}px Georgia, "Times New Roman", serif`;
+    ctx.globalAlpha = np;
+    const nameW = ctx.measureText(NAME).width;
+    const heartW = fs * 1.1;
+    const total = nameW + heartW;
+    const left = cx - total / 2;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffb000';
+    ctx.fillText(NAME, left, ny);
+    ctx.fillStyle = '#ffb000';
+    const hs = 1 + beat * 0.15;
+    ctx.save(); ctx.translate(left + nameW + heartW * 0.5, ny); ctx.scale(hs, hs);
+    ctx.textAlign = 'center'; ctx.fillText('♥', 0, 0); ctx.restore();
+    // chiziq asta-sekin cho'ziladi
+    const lp = ease(clamp((T - 5.5) / 2, 0, 1));
+    ctx.strokeStyle = 'rgba(255,176,0,.6)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(left, ny + fs * 0.7); ctx.lineTo(left + total * lp, ny + fs * 0.7); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.textAlign = 'center';
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
